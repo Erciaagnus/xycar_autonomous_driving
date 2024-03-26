@@ -19,6 +19,13 @@ void StanleyController<PREC>::calculateSteeringAngle(PREC crossTrackError, PREC 
 
     this->mResult = steeringAngle;
 }
+template <typename PREC>
+PREC StanleyController<PREC>::normalizeAngle(PREC angle) const {
+    // normalize the angle to range of [-π, π]
+    while (angle > M_PI) angle -= 2 * M_PI;
+    while (angle < -M_PI) angle += 2 * M_PI;
+    return angle;
+}
 
 template class StanleyController<float>;
 template class StanleyController<double>;
