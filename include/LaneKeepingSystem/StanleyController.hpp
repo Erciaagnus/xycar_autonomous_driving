@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <cmath>
 
 #include "Controller.hpp"
 
@@ -24,10 +25,6 @@ template <typename PREC>
 class StanleyController : public Controller<PREC>
 {
 public:
-    /**
-     *  이 코드는 예제로서, 알맞은 방법으로 자유롭게 수정하셔야 합니다
-     */
-
     /**
      *
      * @brief Construct a new Stanley Controller object
