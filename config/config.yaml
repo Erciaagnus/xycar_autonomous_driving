@@ -46,9 +46,6 @@ DETECTION:
       "LEFT",
       "RIGHT",
       "STOP",
-      "CROSSWLAK",
-      "UTURN",
-      "TRAFFIC_LIGHT",
       "XYCAR",
       "IGNORE",
     ]
