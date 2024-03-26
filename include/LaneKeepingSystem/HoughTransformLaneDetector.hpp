@@ -73,13 +73,28 @@ public:
      */
     HoughTransformLaneDetector(const YAML::Node& config) { setConfiguration(config); }
 
+    void setLeftLanePosition(int32_t lanePosition) {
+        Eigen::Vector2d inputVector;
+        inputVector << static_cast<PREC>(lanePosition), 0.f;
+        mLeftKalmanFilter->set(inputVector);
+    };
+    void setRightLanePosition(int32_t lanePosition) {
+        Eigen::Vector2d inputVector;
+        inputVector << static_cast<PREC>(lanePosition), 0.f;
+        mRightKalmanFilter->set(inputVector);
+    };
+
     /**
      * @brief Get the Lane Position object
      *
      * @param[in] image Image for searching lane position
      * @return Left x position and Right x position
      */
-    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image);
+    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate, std::string detection);
+
+    std::pair<int32_t, int32_t> predictLanePosition(Eigen::Vector2d& inputVector);
+
+    void copyDebugFrame(const cv::Mat& image) { image.copyTo(mDebugFrame); }
 
     /**
      * @brief Draw the position rectangles on debug image
@@ -97,6 +112,10 @@ public:
      */
     const cv::Mat& getDebugFrame() const { return mDebugFrame; };
 
+    void setPrevLinePosition(int32_t leftPosition, int32_t rightPosition);
+    std::pair<int32_t, int32_t> getPrevLinePosition();
+    bool getStopLineStatus();
+
 private:
     /**
      * @brief Set the parameters from config file
@@ -111,7 +130,7 @@ private:
      * @param[in] lines Line vectors from Hough Transform
      * @return Left line index vector, right line index vector
      */
-    std::pair<Indices, Indices> divideLines(const Lines& lines);
+    std::pair<std::vector<std::vector<int>>, bool> divideLines(const Lines& lines);
 
     /**
      * @brief Get the line positions x
@@ -147,7 +166,9 @@ private:
     int32_t mHoughThreshold;         ///< Accumulator threshold parameter. Only those lines are returned that get enough votes
     int32_t mHoughMinLineLength;     ///< Minimum line length. Line segments shorter than that are rejected.
     int32_t mHoughMaxLineGap;        ///< Maximum allowed gap between points on the same line to link them.
-    PREC mHoughLineSlopeRange;       ///< Slope range to limit Hough lines
+    PREC mHoughClusterDistance;
+    PREC mHoughRadian;
+    PREC mHoughLineSlopeRange; ///< Slope range to limit Hough lines
 
     // Image parameters
     int32_t mImageWidth;     ///< The width of the image
@@ -155,9 +176,20 @@ private:
     int32_t mROIStartHeight; ///< The height of the offset for debugging
     int32_t mROIHeight;      ///< Height of ROI
 
+    int32_t mContinusThreshold;
+
     // Debug Image and flag
     cv::Mat mDebugFrame; ///< The frame for debugging
     bool mDebugging;     ///< Debugging or not
+    bool mStopDetected;
+
+    PREC mPrevLeftPosition;
+    PREC mPrevRightPosition;
+
+    KalmanFilterPtr mLeftKalmanFilter;
+    KalmanFilterPtr mRightKalmanFilter;
+
+    PREC mCalculateDistance(PREC x1, PREC y1, PREC x2, PREC y2);
 };
 } // namespace Xycar
 #endif // HOUGH_TRANSFORM_LANE_DETECTOR_HPP_
