@@ -3,13 +3,10 @@
 
 /**
  * @file LaneKeepingSystem.hpp
- * @author Jongrok Lee (lrrghdrh@naver.com)
- * @author Jiho Han
- * @author Haeryong Lim
- * @author Chihyeon Lee
+ * @author JeongHyeokLim
  * @brief Lane Keeping System Class header file
  * @version 1.1
- * @date 2023-05-02
+ * @date 2024-03-27
  */
 #ifndef LANE_KEEPING_SYSTEM_HPP_
 #define LANE_KEEPING_SYSTEM_HPP_
