@@ -15,20 +15,12 @@
 
 namespace Xycar {
 
-/**
- * @brief Line direction left or right
- */
-
-// Define Direction of the vehicle.
-enum class Direction : uint8_t
 {
     LEFT = 0,  ///< Line direction LEFT
     RIGHT = 1, ///< Line direction RIGHT
 };
 
-/**
- * @brief Hough Transform line index
- */
+
 enum HoughIndex : uint8_t
 {
     x1 = 0, ///< First point x
@@ -41,10 +33,6 @@ using Line = cv::Vec4i;               ///< Line between two points
 using Lines = std::vector<Line>;      ///< Vector of Lines
 using Indices = std::vector<int32_t>; ///< Indices of lines
 
-/**
- * @brief Hough Transform Lane Detector Class
- * @tparam PREC Precision of data
- */
 template <typename PREC>
 class HoughTransformLaneDetector final
 {
@@ -62,12 +50,6 @@ public:
     static inline const cv::Scalar kGreen = { 0, 255, 0 };    ///< Scalar values of Green
     static inline const cv::Scalar kBlue = { 255, 0, 0 };     ///< Scalar values of Blue
 
-    /**
-     * @brief Construct a new Hough Transform Lane Detector object
-     *
-     * @param[in] config Configuration including parameters for detector
-     */
-    // 클래스 인스턴스 초기화
     HoughTransformLaneDetector(const YAML::Node& config) { setConfiguration(config); }
     // YAML의 파라미터로부터 받아옴.
     // 칼만 필터를 이용해 차선 위치 설정
@@ -86,13 +68,6 @@ public:
         inputVector << static_cast<PREC>(lanePosition), 0.f;
         mRightKalmanFilter->set(inputVector);
     };
-
-    /**
-     * @brief Get the Lane Position object
-     *
-     * @param[in] image Image for searching lane position
-     * @return Left x position and Right x position
-     */
      // getLanePosition 메서드는 주어진 이미지 내에서 차선 위치 검출 및 위치를 나타내는 두 정수 쌍 반환
     std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate, std::string detection);
 
