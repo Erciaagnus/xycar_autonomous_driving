@@ -14,23 +14,13 @@
 #include <vector>
 
 namespace Xycar {
-/**
- * @brief PID Controller Class
- * @tparam PREC Precision of data
- */
+
 template <typename PREC>
 class BinaryFilter
 {
 public:
     using Ptr = std::unique_ptr<BinaryFilter>; ///< Pointer type of this class
 
-    /**
-     * @brief Construct a new BinaryFilter
-     *
-     * @param[in] pGain Proportional control gain
-     * @param[in] iGain Integral control gain to remove error of steady-state
-     * @param[in] dGain Differential control gain to relieve overshoot and improve stability
-     */
     BinaryFilter(uint32_t sampleSize, PREC prior);
 
     /**
@@ -38,20 +28,20 @@ public:
      *
      * @param[in] newSample New position to be used in filtering
      */
-    void addSample(bool newSample);
+    void addSample(bool newSample); // 이 함수를 통해 샘플을 추가함, 내부적으로 필터링 알고리즘 수행
 
     /**
      * @brief Get the filtered data
      *
      * @return Result of weighted moving average filtering
      */
-    const PREC getResult() const { return mFilteringResult; }
+    const PREC getResult() const { return mFilteringResult; } // 필터링 결과를 얻음.
 
 private:
-    const PREC mPrior;
-    const PREC mSampleSize;
+    const PREC mPrior; // 필터링 과정에서 사용되는 사전 확률. 생성자를 통해 초기화되며 이후 변경 불가
+    const PREC mSampleSize; // 필터링에 사용될 샘플 크기
 
-    PREC mFilteringResult;
+    PREC mFilteringResult; // 현재까지의 필터링 결과를 저장함
 
     std::deque<bool> mSamples; ///< Deque including values of samples
 
