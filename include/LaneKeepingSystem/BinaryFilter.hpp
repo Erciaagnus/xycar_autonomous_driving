@@ -1,15 +1,9 @@
-// Copyright (C) 2023 Grepp CO.
-// All rights reserved.
-
 /**
  * @file PIDController.hpp
- * @author Jongrok Lee (lrrghdrh@naver.com)
- * @author Jiho Han
- * @author Haeryong Lim
- * @author Chihyeon Lee
+ * @author JeongHyeok Lim (henricus0973@korea.ac.kr)
  * @brief PID Controller Class header file
- * @version 1.1
- * @date 2023-05-02
+ * @version 1.2
+ * @date 2024-03-27
  */
 #ifndef BINARY_FILTER_HPP_
 #define BINARY_FILTER_HPP_

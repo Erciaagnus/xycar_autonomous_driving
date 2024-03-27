@@ -3,42 +3,42 @@
 
 #include <cstdint>
 #include <memory>
-#include <yaml-cpp/yaml.h> //Included yaml header file.
 
 namespace Xycar {
 /**
  * @brief PID Controller Class
  * @tparam PREC Precision of data
  */
-
 template <typename PREC>
 class PIDController
 {
 public:
     using Ptr = std::unique_ptr<PIDController>; ///< Pointer type of this class
 
-    // Constructor that takes three parameters for PID values
-    PIDController(PREC kp, PREC ki, PREC kd);
+    /**
+     * @brief Construct a new PID object
+     *
+     * @param[in] pGain Proportional control gain
+     * @param[in] iGain Integral control gain to remove error of steady-state
+     * @param[in] dGain Differential control gain to relieve overshoot and improve stability
+     */
+    PIDController(PREC pGain, PREC iGain, PREC dGain) : mProportionalGain(pGain), mIntegralGain(iGain), mDifferentialGain(dGain) {}
 
-    // Function to compute the control output
-    PREC getControlOutput(PREC error);
+    /**
+     * @brief Compute and return the PID Control Output
+     *
+     * @param[in] errorFromMid Error between estimated position x and half of the image
+     * @return The result of PID controller
+     */
+    PREC getControlOutput(int32_t errorFromMid);
 
 private:
-    const PREC Kp,Ki, Kd; // Define PID Coefficients as "Constant"
-    PREC integral; // Define I, D, P term
-    PREC prev_error;
-    PREC derivative;
+    const PREC mProportionalGain;      ///< Proportional control gain. The higher, the more powerful
+    const PREC mIntegralGain;          ///< Integral control gain to remove error of steady-state
+    const PREC mDifferentialGain;      ///< Differential control gain to relieve overshoot and improve stability
+    PREC mProportionalGainError = 0.0; ///< Error to determine how much the proportional gain should be reflected
+    PREC mIntegralGainError = 0.0;     ///< Error to determine how much the integral gain should be reflected
+    PREC mDifferentialGainError = 0.0; ///< Error to determine how much the differential gain should be reflected
 };
-
-// template <typename PREC>
-// PIDController<PREC>::PIDController(PREC kp, PREC ki, PREC kd)
-//     : kp_(kp), ki_(ki), kd_(kd) {
-// }
-
-// template <typename PREC>
-// PREC PIDController<PREC>::getControlOutput(PREC error) {
-//     return (kp_ * error); // Simplified example
-// }
-
 } // namespace Xycar
 #endif // PID_CONTROLLER_HPP_
