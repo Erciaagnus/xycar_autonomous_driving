@@ -1,22 +1,15 @@
-// Copyright (C) 2023 Grepp CO.
-// All rights reserved.
-
 /**
  * @file HoughTransformLaneDetector.hpp
- * @author Jongrok Lee (lrrghdrh@naver.com)
- * @author Jiho Han
- * @author Haeryong Lim
- * @author Chihyeon Lee
- * @brief Hough Transform Lane Detector class header file
- * @version 1.1
- * @date 2023-05-02
+ * @author JeongHyeok Lim (henricus0973@korea.ac.kr)
+ * @brief Hough Transform Lane Detector class header file. Detect lane and estimate the position using kalman filter.
+ * @version 1.2
+ * @date 2024-03027
  */
 #ifndef HOUGH_TRANSFORM_LANE_DETECTOR_HPP_
 #define HOUGH_TRANSFORM_LANE_DETECTOR_HPP_
 
 #include <iostream>
 #include <memory>
-
 #include "opencv2/opencv.hpp"
 #include <yaml-cpp/yaml.h>
 
@@ -25,6 +18,8 @@ namespace Xycar {
 /**
  * @brief Line direction left or right
  */
+
+// Define Direction of the vehicle.
 enum class Direction : uint8_t
 {
     LEFT = 0,  ///< Line direction LEFT
@@ -55,6 +50,7 @@ class HoughTransformLaneDetector final
 {
 public:
     using Ptr = std::unique_ptr<HoughTransformLaneDetector>; ///< Pointer type of this class
+    using KalmanFilterPtr = typename LaneKalmanFilter<PREC>::Ptr;
 
     static constexpr double kHoughRho = 4.0;                  ///< Distance resolution of the accumulator in pixels.
     static constexpr double kHoughTheta = CV_PI / 180.0;      ///< Angle resolution of the accumulator in radians. If C++20, CV_PI should be replaced with std::numbers::pi
@@ -71,13 +67,20 @@ public:
      *
      * @param[in] config Configuration including parameters for detector
      */
+    // 클래스 인스턴스 초기화
     HoughTransformLaneDetector(const YAML::Node& config) { setConfiguration(config); }
+    // YAML의 파라미터로부터 받아옴.
+    // 칼만 필터를 이용해 차선 위치 설정
 
+    // 왼쪽 차선 위치 설정
     void setLeftLanePosition(int32_t lanePosition) {
-        Eigen::Vector2d inputVector;
-        inputVector << static_cast<PREC>(lanePosition), 0.f;
-        mLeftKalmanFilter->set(inputVector);
+        Eigen::Vector2d inputVector; // Eigen 라이브러리에서 inputVector 생성
+        inputVector << static_cast<PREC>(lanePosition), 0.f; // lanePosition 변수를 PREC 타입으로 변환, 벡터 두 번째 요소로 0.0 사용. 부동 소수점
+        mLeftKalmanFilter->set(inputVector); // mLeft칼만의 set 메서드를 호출해 2차원 벡터를 칼만필터에 설정함
+        // set은 칼만필터의 초기상태 및 새로운 측정값을 설정하는 데 사용됨. 차선의 위치를 상태변수로 받음.
     };
+
+    // 오른쪽 차선 위치 설정, 왼쪽 차선과 동일
     void setRightLanePosition(int32_t lanePosition) {
         Eigen::Vector2d inputVector;
         inputVector << static_cast<PREC>(lanePosition), 0.f;
@@ -90,8 +93,10 @@ public:
      * @param[in] image Image for searching lane position
      * @return Left x position and Right x position
      */
+     // getLanePosition 메서드는 주어진 이미지 내에서 차선 위치 검출 및 위치를 나타내는 두 정수 쌍 반환
     std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate, std::string detection);
 
+    // 입력 벡터를 기반으로 위치를 예측하고 그 예측된 위치를 나타내는 두 정수 쌍을 반환한다. 칼만필터를 이용해 차선 다음 위치를 예측할 때 사용한다.
     std::pair<int32_t, int32_t> predictLanePosition(Eigen::Vector2d& inputVector);
 
     void copyDebugFrame(const cv::Mat& image) { image.copyTo(mDebugFrame); }
@@ -160,6 +165,8 @@ private:
      */
     void drawLines(const Lines& lines, const Indices& leftLineIndices, const Indices& rightLineIndices);
 
+
+// Private 정의
 private:
     int32_t mCannyEdgeLowThreshold;  ///< Low threshold for Canny edge
     int32_t mCannyEdgeHighThreshold; ///< High threshold for Canny edge
