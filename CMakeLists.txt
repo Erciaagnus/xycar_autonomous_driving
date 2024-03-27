@@ -122,15 +122,18 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIR}
+  ${Eigen_INCLUDE_DIRS}
 )
 
 add_library(modules
-  src/${PROJECT_NAME}/HoughTransformLaneDetector.cpp
-  src/${PROJECT_NAME}/MovingAverageFilter.cpp
-  src/${PROJECT_NAME}/PIDController.cpp
-  src/${PROJECT_NAME}/LaneKeepingSystem.cpp
-  src/${PROJECT_NAME}/StanleyController.cpp
-  src/${PROJECT_NAME}/VehicleModel.cpp
+src/${PROJECT_NAME}/HoughTransformLaneDetector.cpp
+src/${PROJECT_NAME}/MovingAverageFilter.cpp
+src/${PROJECT_NAME}/PIDController.cpp
+src/${PROJECT_NAME}/LaneKeepingSystem.cpp
+src/${PROJECT_NAME}/StanleyController.cpp
+src/${PROJECT_NAME}/VehicleModel.cpp
+src/${PROJECT_NAME}/LaneKalmanFilter.cpp
+src/${PROJECT_NAME}/BinaryFilter.cpp
 )
 
 add_executable(${PROJECT_NAME}_node src/main.cpp)
@@ -140,5 +143,5 @@ target_link_libraries(${PROJECT_NAME}_node
   ${YAML_CPP_LIBRARIES}
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
-  
+  ${Eigen_LIBRARIES}
 )
