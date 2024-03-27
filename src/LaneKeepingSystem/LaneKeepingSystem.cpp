@@ -3,13 +3,10 @@
 
 /**
  * @file LaneKeepingSystem.cpp
- * @author Jongrok Lee (lrrghdrh@naver.com)
- * @author Jiho Han
- * @author Haeryong Lim
- * @author Chihyeon Lee
+ * @author JeongHyeok Lim (lrrghdrh@naver.com)
  * @brief Lane Keeping System Class source file
- * @version 1.1
- * @date 2023-05-02
+ * @version 1.2
+ * @date 2024-03-28
  */
 #include "LaneKeepingSystem/LaneKeepingSystem.hpp"
 
@@ -30,13 +27,14 @@ LaneKeepingSystem<PREC>::LaneKeepingSystem()
     mPublisher = mNodeHandler.advertise<xycar_msgs::xycar_motor>(mPublishingTopicName, mQueueSize);
     mSubscriber = mNodeHandler.subscribe(mSubscribedTopicName, mQueueSize, &LaneKeepingSystem::imageCallback, this);
     //Added Lidar Sensor... Subscriber
-    mLidarSubscriber = mNodeHandler.subscribe("/scan", 1, &LaneKeepingSystem::liDARCallback, this);
+    //mLidarSubscriber = mNodeHandler.subscribe("/scan", 1, &LaneKeepingSystem::liDARCallback, this);
 
     // Added Publisher to publish vehicle State
     mVehicleStatePublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/vehicle_state", 1);
     // Added Publisher to Position of the vehicle
     mLanePositionPublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/lane_position", 1);
 
+    // Additionally added STANLEY CONTROLLER and BINARY FILTER
     mStanley = std::make_unique<StanleyController<PREC>>(mStanleyGain, mStanleyLookAheadDistance);
     mBinaryFilter = std::make_unique<BinaryFilter<PREC>>(mStopSampleSize, mStopProbability);
 }
@@ -63,16 +61,8 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mStopSampleSize = config["STOP"]["SAMPLE_SIZE"].as<int32_t>();
     mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>();
 
-    mDetectionLabel = config["DETECTION"]["CLASSES"].as<std::vector<std::string>>();
-    mLidarAngleThreshold = config["LIDAR"]["RANGE_RADIAN_THRESHOLD"].as<PREC>();
-    mLidarDistanceThreshold = config["LIDAR"]["RANGE_DISTANCE_THRESHOLD"].as<PREC>();
-    mLidarClusterThreshold = config["LIDAR"]["CLUSTER_DISTANCE_THRESHOLD"].as<PREC>();
-    mLidarClusterMinpoint = config["LIDAR"]["CLUSTER_MIN_POINT"].as<PREC>();
-    mLidarClusterMaxpoint = config["LIDAR"]["CLUSTER_MAX_POINT"].as<PREC>();
-    mLidarTrackingThreshold = config["LIDAR"]["TRACKING_DISTANCE_THRESHOLD"].as<PREC>();
-    mLidarTrackingMissSecond = config["LIDAR"]["TRACKING_MISS_SECOND"].as<PREC>();
-
-    mSignSignalSecond = config["DETECTION"]["SIGN_LIFESECOND"].as<PREC>();
+    // Since we don't use Traffic signal.
+    //mSignSignalSecond = config["DETECTION"]["SIGN_LIFESECOND"].as<PREC>();
 
     mAvoidanceInput = std::make_pair(config["AVOIDANCE_INPUT"]["POSITION"].as<PREC>(), config["AVOIDANCE_INPUT"]["SLOPE"].as<PREC>());
     mRotateInput = std::make_pair(config["ROTATE_INPUT"]["POSITION"].as<PREC>(), config["ROTATE_INPUT"]["SLOPE"].as<PREC>());
@@ -136,56 +126,7 @@ void LaneKeepingSystem<PREC>::run()
 
         PREC steeringAngle = 0.f;
 
-        if (mLidarDetectBox.size() > 0)
-        {
-            std::cout << "detect box length: " << mLidarDetectBox.size() << std::endl;
-            const auto [positionInput, slopeInput] = mAvoidanceInput;
-            auto bbox = mLidarDetectBox[0];
-            PREC shortPointRadian = std::atan2(mLidarDistanceThreshold - (std::get<2>(bbox) + std::get<0>(bbox)) / 2.f, (std::get<3>(bbox) + std::get<1>(bbox)) / 2.f);
-            PREC PI_HALF = PI / 2.f;
 
-            // RIGHT LEFT
-            if (shortPointRadian < PI / 2.f)
-            {
-                steeringAngle = steeringMaxRadian * (shortPointRadian / PI_HALF);
-                inputVector << positionInput * -1, slopeInput * -1;
-            }
-            else
-            {
-                steeringAngle = steeringMaxRadian * ((PI_HALF - (shortPointRadian - PI_HALF)) / PI_HALF) * -1;
-                inputVector << positionInput, slopeInput;
-            }
-            runUpdate = false;
-            steeringAngle = static_cast<PREC>(steeringAngle * (180 / PI));
-            std::cout << "Lidar Driving Angle: " << steeringAngle << std::endl;
-
-            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->predictLanePosition(inputVector);
-
-            leftPositionX = predictLeftPositionX;
-            rightPositionX = predictRightPositionX;
-        }
-        else
-        {
-            runUpdate = true;
-            inputVector << 0.f, 0.f;
-            const auto [positionInput, slopeInput] = mRotateInput;
-
-            if (previousSteeringAngle < mRotateThreshold * -1)
-            {
-                inputVector << positionInput * -1, slopeInput * -1;
-            }
-            else if (previousSteeringAngle > mRotateThreshold)
-            {
-                inputVector << positionInput, slopeInput;
-            }
-            else if (detectedTrafficSignLabel == "LEFT")
-            {
-                inputVector << mSignInput.first * -1, mSignInput.second * -1;
-            }
-            else if (detectedTrafficSignLabel == "RIGHT")
-            {
-                inputVector << mSignInput.first, mSignInput.second;
-            }
 
             std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
             std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
@@ -218,12 +159,6 @@ void LaneKeepingSystem<PREC>::run()
         }
 
         std::cout << "position: " << leftPositionX << ", " << rightPositionX << std::endl;
-        // std::cout << "steeringAngle: " << steeringAngle << std::endl;
-
-        // std::cout << "sign: " << detectedTrafficSignLabel << std::endl;
-        // std::cout << "input vector: " << inputVector(0) << std::endl;
-        // std::cout << "stop: " << stopProbability << std::endl;
-
         if (enableStopDetected && stopDetected && !previousStopDetected)
         {
             stopTime = currentTime;
@@ -270,6 +205,7 @@ void LaneKeepingSystem<PREC>::run()
     }
 }
 
+// 이미지 콜백함수
 template <typename PREC>
 void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
 {
@@ -277,130 +213,8 @@ void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
     cv::cvtColor(src, mFrame, cv::COLOR_RGB2BGR);
 }
 
-template <typename PREC>
-void LaneKeepingSystem<PREC>::liDARCallback(const sensor_msgs::LaserScan::ConstPtr& message)
-{
-    const PREC angleIncrement = message->angle_increment;
-    const PREC radianThreshold = mLidarAngleThreshold;
-    const PREC distanceThreshold = mLidarDistanceThreshold;
 
-    const PREC clusterDistanceThreshold = mLidarClusterThreshold;
-    const PREC radian2 = 6.28319;
-
-    std::vector<std::array<PREC, 2>> XYLidarPoints;
-    std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> lidarDetectBoxs;
-    std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> lidarUpdateBoxs;
-
-    for (int32_t i = 0; i < message->ranges.size(); i++)
-    {
-        PREC distance = message->ranges[i];
-        PREC angle = static_cast<PREC>(i) * angleIncrement;
-        PREC x = distance * std::cos(angle);
-        PREC y = distance * std::sin(angle);
-        std::array<PREC, 2> pointXY = { x, y };
-
-        if (distance > 0 && distance < distanceThreshold && (angle < radianThreshold || angle > radian2 - radianThreshold))
-        {
-            XYLidarPoints.push_back(pointXY);
-        }
-    }
-
-    const int32_t pointSize = XYLidarPoints.size();
-    std::vector<bool> visited(pointSize, false);
-
-    for (uint32_t i = 0; i < pointSize; i++)
-    {
-        std::vector<int> cluster;
-        std::queue<int> queue;
-
-        if (visited[i])
-        {
-            continue;
-        }
-
-        visited[i] = true;
-        queue.push(i);
-
-        while (!queue.empty())
-        {
-            int currentIndex = queue.front();
-            auto pointXY = XYLidarPoints[currentIndex];
-            queue.pop();
-            cluster.push_back(currentIndex);
-
-            for (uint32_t j = 0; j < pointSize; j++)
-            {
-                if (visited[j])
-                {
-                    continue;
-                }
-                auto targetPointXY = XYLidarPoints[j];
-                PREC dx = pointXY[0] - targetPointXY[0];
-                PREC dy = pointXY[1] - targetPointXY[1];
-                PREC distance = std::sqrt(dx * dx + dy * dy);
-
-                if (distance <= clusterDistanceThreshold)
-                {
-                    queue.push(j);
-                    visited[j] = true;
-                }
-            }
-        }
-        if (cluster.size() > mLidarClusterMinpoint && cluster.size() < mLidarClusterMaxpoint)
-        {
-            std::array<PREC, 4> detectedBox = { 10000.f, 10000.f, -1.f, -1.f };
-            for (auto index : cluster)
-            {
-                detectedBox[0] = std::min(detectedBox[0], XYLidarPoints[index][0]);
-                detectedBox[1] = std::min(detectedBox[1], XYLidarPoints[index][1]);
-                detectedBox[2] = std::max(detectedBox[2], XYLidarPoints[index][0]);
-                detectedBox[3] = std::max(detectedBox[3], XYLidarPoints[index][1]);
-            }
-
-            lidarDetectBoxs.push_back(std::make_tuple(detectedBox[0], detectedBox[1], detectedBox[2], detectedBox[3], ros::Time::now()));
-        }
-    }
-
-    ros::Time nowTime = ros::Time::now();
-
-    if (mLidarDetectBox.size() <= 0)
-    {
-        mLidarDetectBox = lidarDetectBoxs;
-    }
-    else
-    {
-        for (int32_t i = 0; i < mLidarDetectBox.size(); i++)
-        {
-            auto pBox = mLidarDetectBox[i];
-            ros::Duration timeDiff = nowTime - std::get<4>(pBox);
-
-            PREC prevX = (std::get<2>(pBox) + std::get<0>(pBox)) / 2.f;
-            PREC prevY = (std::get<3>(pBox) + std::get<1>(pBox)) / 2.f;
-            bool isUpdate = false;
-            for (auto box : lidarDetectBoxs)
-            {
-                PREC nowX = (std::get<2>(box) + std::get<0>(box)) / 2.f;
-                PREC nowY = (std::get<3>(box) + std::get<1>(box)) / 2.f;
-                PREC dx = nowX - prevX;
-                PREC dy = nowY - prevY;
-                PREC distance = std::sqrt(dx * dx + dy * dy);
-
-                if (distance <= mLidarTrackingThreshold)
-                {
-                    isUpdate = true;
-                    lidarUpdateBoxs.push_back(box);
-                    break;
-                }
-            }
-
-            if (!isUpdate && timeDiff.toSec() <= mLidarTrackingMissSecond)
-            {
-                lidarUpdateBoxs.push_back(pBox);
-            }
-        }
-        mLidarDetectBox = lidarUpdateBoxs;
-    }
-}
+// SPEED 컨트롤 콜백 함수 ( using Steering Angle )
 template <typename PREC>
 void LaneKeepingSystem<PREC>::speedControl(PREC steeringAngle)
 {
@@ -415,6 +229,8 @@ void LaneKeepingSystem<PREC>::speedControl(PREC steeringAngle)
     mXycarSpeed = std::min(mXycarSpeed, mXycarMaxSpeed);
 }
 
+
+// STOP 함수
 template <typename PREC>
 void LaneKeepingSystem<PREC>::stop(PREC steeringAngle)
 {
@@ -427,6 +243,8 @@ void LaneKeepingSystem<PREC>::stop(PREC steeringAngle)
     mPublisher.publish(motorMessage);
 }
 
+
+// 드라이브 함수
 template <typename PREC>
 void LaneKeepingSystem<PREC>::drive(PREC steeringAngle)
 {
