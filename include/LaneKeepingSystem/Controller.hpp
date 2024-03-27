@@ -4,66 +4,63 @@
 /**
  * @file Controller.hpp
  * @brief Controller Class header file
- * @version 1.0
- * @date 2023-05-23
+ * @version 1.1
+ * @date 2024-03-27
  */
 #ifndef CONTROLLER_HPP_
 #define CONTROLLER_HPP_
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
-#include <cmath>
 
-namespace Xycar
+namespace Xycar {
+/**
+ * @brief Absbract Controller Class
+ * @tparam PREC Precision of data
+ */
+template <typename PREC>
+class Controller
 {
+public:
+    using Ptr = std::unique_ptr<Controller>; ///< Pointer type of this class
+
     /**
-     * @brief Absbract Controller Class
-     * @tparam PREC Precision of data
+     * @brief Construct a new Controller object
      */
-    template <typename PREC>
-    class Controller
+    Controller() = default;
+
+    /**
+     * @brief Return the Control Output
+     *
+     * @return The result of controller
+     */
+    PREC getControlOutput() const { return mResult; }
+
+    /**
+     * @brief
+     *
+     * @param angle
+     * @return
+     */
+    PREC normalizeAngle(PREC angle)
     {
-    public:
-        using Ptr = std::unique_ptr<Controller>; ///< Pointer type of this class
+        const PREC pi = getPI();
+        while (angle > pi)
+            angle -= 2 * pi;
+        while (angle < -pi)
+            angle += 2 * pi;
+        return angle;
+    }
 
-        /**
-         * @brief Construct a new Controller object
-         */
-        Controller() = default;
-
-        /**
-         * @brief Return the Control Output
-         *
-         * @return The result of controller
-         */
-        PREC getControlOutput() const { return mResult; }
-
-        /**
-         * @brief
-         *
-         * @param angle
-         * @return
-         */
-        PREC normalizeAngle(PREC angle)
-        {
-            const PREC pi = getPI();
-            while (angle > pi)
-                angle -= 2 * pi;
-            while (angle < -pi)
-                angle += 2 * pi;
-            return angle;
-        }
-
-    protected:
-        PREC mResult; ///< Control output
-
-    private:
-        /**
-         * @brief
-         *
-         * @return constexpr double
-         */
-        constexpr PREC getPI() { return static_cast<PREC>(std::atan(1) * 4.0); }
-    };
+protected:
+    PREC mResult; ///< Control output
+    /**
+     * @brief
+     *
+     * @return constexpr double
+     */
+    constexpr PREC getPI() { return static_cast<PREC>(std::atan(1) * 4.0); }
+};
 } // namespace Xycar
 #endif // CONTROLLER_HPP_
