@@ -1,13 +1,3 @@
-// Copyright (C) 2023 Grepp CO.
-// All rights reserved.
-
-/**
- * @file LaneKeepingSystem.cpp
- * @author JeongHyeok Lim (lrrghdrh@naver.com)
- * @brief Lane Keeping System Class source file
- * @version 1.2
- * @date 2024-03-28
- */
 #include "LaneKeepingSystem/LaneKeepingSystem.hpp"
 
 namespace Xycar {
@@ -15,28 +5,22 @@ template <typename PREC>
 LaneKeepingSystem<PREC>::LaneKeepingSystem()
 {
     std::string configPath;
+    std::string calibrationPath;
     mNodeHandler.getParam("config_path", configPath);
+    mNodeHandler.getParam("calibration_path", calibrationPath);
     YAML::Node config = YAML::LoadFile(configPath);
+    YAML::Node calibration = YAML::LoadFile(calibrationPath);
 
     mPID = std::make_unique<PIDController<PREC>>(config["PID"]["P_GAIN"].as<PREC>(), config["PID"]["I_GAIN"].as<PREC>(), config["PID"]["D_GAIN"].as<PREC>());
+    mStanley = std::make_unique<StanleyController<PREC>>(mStanleyGain, mStanleyLookAheadDistance);
     mMovingAverage = std::make_unique<MovingAverageFilter<PREC>>(config["MOVING_AVERAGE_FILTER"]["SAMPLE_SIZE"].as<uint32_t>());
+    mImgPreProcessor = std::make_unique<IMGPreProcessor<PREC>>(config, calibration);
+    mStopLineDetector = std::make_unique<StopLineDetector<PREC>>(config);
     mHoughTransformLaneDetector = std::make_unique<HoughTransformLaneDetector<PREC>>(config);
-    mVehicleModel = std::make_unique<VehicleModel<PREC>>(0,0,0);
     setParams(config);
 
     mPublisher = mNodeHandler.advertise<xycar_msgs::xycar_motor>(mPublishingTopicName, mQueueSize);
     mSubscriber = mNodeHandler.subscribe(mSubscribedTopicName, mQueueSize, &LaneKeepingSystem::imageCallback, this);
-    //Added Lidar Sensor... Subscriber
-    //mLidarSubscriber = mNodeHandler.subscribe("/scan", 1, &LaneKeepingSystem::liDARCallback, this);
-
-    // Added Publisher to publish vehicle State
-    mVehicleStatePublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/vehicle_state", 1);
-    // Added Publisher to Position of the vehicle
-    mLanePositionPublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/lane_position", 1);
-
-    // Additionally added STANLEY CONTROLLER and BINARY FILTER
-    mStanley = std::make_unique<StanleyController<PREC>>(mStanleyGain, mStanleyLookAheadDistance);
-    mBinaryFilter = std::make_unique<BinaryFilter<PREC>>(mStopSampleSize, mStopProbability);
 }
 
 template <typename PREC>
@@ -51,178 +35,81 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mXycarSpeedControlThreshold = config["XYCAR"]["SPEED_CONTROL_THRESHOLD"].as<PREC>();
     mAccelerationStep = config["XYCAR"]["ACCELERATION_STEP"].as<PREC>();
     mDecelerationStep = config["XYCAR"]["DECELERATION_STEP"].as<PREC>();
-    // Added Stanley Gain. (&& YOU SHOULD ADDED THIS!!!!!!!)
     mStanleyGain = config["STANLEY"]["K_GAIN"].as<PREC>();
     mStanleyLookAheadDistance = config["STANLEY"]["LOOK_AHREAD_DISTANCE"].as<PREC>();
     mDebugging = config["DEBUG"].as<bool>();
-
-    mLinearUnit = config["XYCAR"]["LINEAR_UNIT"].as<PREC>();
-    mAngleUnit = config["XYCAR"]["ANGLE_UNIT"].as<PREC>();
-    mStopSampleSize = config["STOP"]["SAMPLE_SIZE"].as<int32_t>();
-    mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>(); // Predicted Lane..
-
-    // Since we don't use Traffic signal.
-    //mSignSignalSecond = config["DETECTION"]["SIGN_LIFESECOND"].as<PREC>();
-
-    mAvoidanceInput = std::make_pair(config["AVOIDANCE_INPUT"]["POSITION"].as<PREC>(), config["AVOIDANCE_INPUT"]["SLOPE"].as<PREC>());
-    mRotateInput = std::make_pair(config["ROTATE_INPUT"]["POSITION"].as<PREC>(), config["ROTATE_INPUT"]["SLOPE"].as<PREC>());
-    mSignInput = std::make_pair(config["SIGN_INPUT"]["POSITION"].as<PREC>(), config["SIGN_INPUT"]["SLOPE"].as<PREC>());
-
-    mRotateThreshold = config["XYCAR"]["ROTATE_THRESHOLD"].as<PREC>();
-    mMinBoundingboxArea = config["DETECTION"]["MIN_BOUNDINGBOX_AREA"].as<PREC>();
 }
 
-// RUN MAIN FUNCTION!!!!!!!!!!
 template <typename PREC>
 void LaneKeepingSystem<PREC>::run()
 {
-    const PREC PI = std::atan(1) * 4.0;
+    // PI 다시 정리
+    const PREC PI = std::atan(1)*4.0;
     ros::Rate rate(kFrameRate);
-    ros::Time currentTime, previousTime, pubTime, stopTime;
-    ros::Time now = ros::Time::now();
-    PREC previousSteeringAngle = 0.f;
-    PREC steeringMaxRadian = kXycarSteeringAangleLimit * (PI / 180.f);
-
+    // Define Steering Angle.
+    PREC steeringMaxRadian = kXycarSteeringAngleLimit * (PI/180.f);
     std::cout << "max radian: " << steeringMaxRadian << std::endl;
-    bool enableStopDetected = true;
-    bool previousStopDetected = false;
-    bool stopDetected = false;
-    bool setStopTimer = true;
-    bool isStop = false;
-    bool runUpdate = true;
-
-    std::string detectedTrafficSignLabel = "IGNORE";
-    std::string prevDetectedTrafficSignLabel = "IGNORE";
-    Eigen::Vector2d inputVector;
-    Eigen::Vector2d zeroVector;
-
-    currentTime = now;
-    previousTime = now;
-    pubTime = now;
-    stopTime = now;
-
-    inputVector << 0.f, 0.f;
-
-    // ROS가 종료될때까지 반복해서 실행.
     while (ros::ok())
     {
-        ros::spinOnce(); // ROS 메시지 콜백함수들 호출
-
-        if (mFrame.empty()) // mFrame이 비어있지 않으면 지속적 실행
+        ros::spinOnce();
+        if (mFrame.empty())
             continue;
 
-        mHoughTransformLaneDetector->copyDebugFrame(mFrame);
+        mImgPreProcessor->preprocessImage(mFrame, mBlurredRoiImage, mEdgedRoiImage);
 
-        // if (!mDetectTrafficSigns.empty())
+        // if (mStopLineDetector->detect(mBlurredRoiImage))
         // {
-        //     const auto [boundingBoxArea, box] = mDetectTrafficSigns.top();
-        //     const auto [trafficSignLabel, trafficSignTime] = box;
-
-        //     detectedTrafficSignLabel = mDetectionLabel[trafficSignLabel];
-        // } else {
-        //     detectedTrafficSignLabel = "IGNORE";
+        //     finish();
+        //     break;
         // }
 
-        int32_t leftPositionX = 0;
-        int32_t rightPositionX = 640;
+        const auto [leftPosisionX, rightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, mEdgedRoiImage);
 
-        PREC steeringAngle = 0.f;
-        runUpdate = true;
-        inputVector << 0.f, 0.f;
-        const auto [positionInput, slopeInput] = mRotateInput;
+        mMovingAverage->addSample(static_cast<int32_t>((leftPosisionX + rightPositionX) / 2));
 
-        if (previousSteeringAngle < mRotateThreshold * -1)
-            {
-                inputVector << positionInput * -1, slopeInput * -1;
-            }
-        else if (previousSteeringAngle > mRotateThreshold)
-            {
-                inputVector << positionInput, slopeInput;
-            }
-        else if (detectedTrafficSignLabel == "LEFT")
-            {
-                inputVector << mSignInput.first * -1, mSignInput.second * -1;
-            }
-        else if (detectedTrafficSignLabel == "RIGHT")
-            {
-                inputVector << mSignInput.first, mSignInput.second;
-            }
+        // estimate position
+        int32_t estimatedPositionX = static_cast<int32_t>(mMovingAverage->getResult());
+        int32_t errorFromMid=estimatePositionX -static_cast<int32_t>(mframe.cols/2); // 여기서 ROI를 쓰는게 아니라 전체 FRAME을 씀.
 
-        std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
-        std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
-        std::cout << "RUN UPDATE: " << runUpdate << std::endl;
-        // std::cout << "input vector: " << inputVector(0) << std::endl;
-        mHoughTransformLaneDetector->predictLanePosition(inputVector);
-        auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate, detectedTrafficSignLabel);
 
-        leftPositionX = predictLeftPositionX;
-        rightPositionX = predictRightPositionX;
+        // Cross Track Error: 목표 위치와 현재 위치 사이의 거리
+        float crossTrackError = static_cast<float>(errorFromMid);
 
-        currentTime = ros::Time::now();
-        stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
+        //TODO (1): Heading Error Calculation
+        // 차선 중앙 경로 기울기 계산
+        float x1_center = leftPositionX;
+        float x2_center = rightPositionX;
+        float y_center = mEdgedRoiImage.rows/2;
+        // 화면 프레임 중앙값 좌표 계산.
+        float slope_center = static_cast<float>(y_center) / (x2_center - x1_center);
 
-        mBinaryFilter->addSample(stopDetected);
-        PREC stopProbability = mBinaryFilter->getResult();
-        stopDetected = stopProbability > 0.5;
+        float angle_center=atan(slope_center);
+        float headingAngle=angle_center;
+        float headingAngleDegrees=headingAngle*(180.0f / M_PI);
+        // 각도 계산
 
-        ros::Duration delta_t = currentTime - previousTime;
-        mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * (M_PI / 180.f), static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
+        mStanley->calculateSteeringAngle(crossTrackError, headingAngleDegrees, mXycarSpeed);
 
-        int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
-        int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
-        mStanley->calculateSteeringAngle(errorFromMid, 0, mXycarSpeed);
+        // 조향각을 가져오거나 사용
+        PREC steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(mStanley->getControlOutput()), static_cast<PREC>(kXycarSteeringAangleLimit)));
 
-        PREC stanleyResult = mStanley->getResult();
-        steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
-
-        std::cout << "position: " << leftPositionX << ", " << rightPositionX << std::endl;
-        if (enableStopDetected && stopDetected && !previousStopDetected)
-        {
-            stopTime = currentTime;
-            setStopTimer = false;
-            isStop = true;
-            enableStopDetected = false;
-        }
-
-        int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
+        // int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
+        // PREC steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(mPID->getControlOutput(errorFromMid)), static_cast<PREC>(kXycarSteeringAangleLimit)));
 
         speedControl(steeringAngle);
         drive(steeringAngle);
 
-        previousSteeringAngle = steeringAngle;
-        previousStopDetected = stopDetected;
-        prevDetectedTrafficSignLabel = detectedTrafficSignLabel;
-
         if (mDebugging)
         {
-            std_msgs::Float32MultiArray vehicleStateMsg;
-
-            std::tuple<PREC, PREC, PREC> vehicleState = mVehicleModel->getResult();
-
-            vehicleStateMsg.data.push_back(std::get<0>(vehicleState));
-            vehicleStateMsg.data.push_back(std::get<1>(vehicleState));
-            vehicleStateMsg.data.push_back(std::get<2>(vehicleState));
-            vehicleStateMsg.data.push_back(leftPositionX);
-            vehicleStateMsg.data.push_back(rightPositionX);
-
-            ros::Duration pubDiff = ros::Time::now() - pubTime;
-
-            if (pubDiff.toSec() > 0.1)
-            {
-                mVehicleStatePublisher.publish(vehicleStateMsg);
-                pubTime = ros::Time::now();
-            }
-
-            mHoughTransformLaneDetector->drawRectangles(leftPositionX, rightPositionX, estimatedPositionX);
+            std::cout << "imageWidth: " << imageWidth << ", imageHeight: " << imageHeight << ", imageCenterX: " << imageCenterX << ", A_y: " << A_y << ", B_y: " << B_y << ", CTE: " << crossTrackError << ", deltaY: " << deltaY << std::endl;
+            // std::cout << "lpos: " << leftPosisionX << ", rpos: " << rightPositionX << ", mpos: " << estimatedPositionX << ", steeringAngle: " << steeringAngle << std::endl;
+            mHoughTransformLaneDetector->drawRectangles(leftPosisionX, rightPositionX, estimatedPositionX);
             cv::imshow("Debug", mHoughTransformLaneDetector->getDebugFrame());
             cv::waitKey(1);
         }
-
-        previousTime = ros::Time::now();
     }
 }
 
-// 이미지 콜백함수
 template <typename PREC>
 void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
 {
@@ -230,8 +117,6 @@ void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
     cv::cvtColor(src, mFrame, cv::COLOR_RGB2BGR);
 }
 
-
-// SPEED 컨트롤 콜백 함수 ( using Steering Angle )
 template <typename PREC>
 void LaneKeepingSystem<PREC>::speedControl(PREC steeringAngle)
 {
@@ -246,31 +131,41 @@ void LaneKeepingSystem<PREC>::speedControl(PREC steeringAngle)
     mXycarSpeed = std::min(mXycarSpeed, mXycarMaxSpeed);
 }
 
-
-// STOP 함수
-template <typename PREC>
-void LaneKeepingSystem<PREC>::stop(PREC steeringAngle)
-{
-    xycar_msgs::xycar_motor motorMessage;
-
-    motorMessage.header.stamp = ros::Time::now();
-    motorMessage.angle = steeringAngle;
-    motorMessage.speed = 0;
-
-    mPublisher.publish(motorMessage);
-}
-
-
-// 드라이브 함수
 template <typename PREC>
 void LaneKeepingSystem<PREC>::drive(PREC steeringAngle)
 {
     xycar_msgs::xycar_motor motorMessage;
-
-    motorMessage.header.stamp = ros::Time::now();
     motorMessage.angle = std::round(steeringAngle);
     motorMessage.speed = std::round(mXycarSpeed);
+
     mPublisher.publish(motorMessage);
+}
+
+template <typename PREC>
+void LaneKeepingSystem<PREC>::finish()
+{
+    ROS_INFO("STOP Detected - Starting Deceleration");
+    PREC decelerationRate = 0.2; // 감속 비율 (예: 현재 속도의 20%만큼 감속)
+    int decelerationInterval = 100; // 감속 간격 (ms)
+    PREC minSpeed = static_cast<PREC>(0.1); // 이 속도 이하에서는 차량을 정지시킴
+
+    while (mXycarSpeed > minSpeed && ros::ok())
+    {
+        mXycarSpeed *= (1 - decelerationRate); // 현재 속도에서 일정 비율 감소
+        if (mXycarSpeed <= minSpeed)
+        {
+            mXycarSpeed = 0; // 최소 속도에 도달하면 완전히 정지
+            ROS_INFO("Car Stopped");
+        }
+
+        // 차량 제어 메시지 업데이트 및 발행
+        xycar_msgs::xycar_motor motorMessage;
+        motorMessage.angle = 0; // 감속 중에는 핸들 각도를 0으로 유지
+        motorMessage.speed = std::round(mXycarSpeed);
+        mPublisher.publish(motorMessage);
+
+        ros::Duration(decelerationInterval / 1000.0).sleep(); // 다음 감속까지 일정 시간 대기
+    }
 }
 
 template class LaneKeepingSystem<float>;
