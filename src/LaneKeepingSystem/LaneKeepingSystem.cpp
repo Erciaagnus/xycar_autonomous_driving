@@ -59,7 +59,7 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mLinearUnit = config["XYCAR"]["LINEAR_UNIT"].as<PREC>();
     mAngleUnit = config["XYCAR"]["ANGLE_UNIT"].as<PREC>();
     mStopSampleSize = config["STOP"]["SAMPLE_SIZE"].as<int32_t>();
-    mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>();
+    mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>(); // Predicted Lane..
 
     // Since we don't use Traffic signal.
     //mSignSignalSecond = config["DETECTION"]["SIGN_LIFESECOND"].as<PREC>();
@@ -125,38 +125,53 @@ void LaneKeepingSystem<PREC>::run()
         int32_t rightPositionX = 640;
 
         PREC steeringAngle = 0.f;
+        runUpdate = true;
+        inputVector << 0.f, 0.f;
+        const auto [positionInput, slopeInput] = mRotateInput;
 
+        if (previousSteeringAngle < mRotateThreshold * -1)
+            {
+                inputVector << positionInput * -1, slopeInput * -1;
+            }
+        else if (previousSteeringAngle > mRotateThreshold)
+            {
+                inputVector << positionInput, slopeInput;
+            }
+        else if (detectedTrafficSignLabel == "LEFT")
+            {
+                inputVector << mSignInput.first * -1, mSignInput.second * -1;
+            }
+        else if (detectedTrafficSignLabel == "RIGHT")
+            {
+                inputVector << mSignInput.first, mSignInput.second;
+            }
 
+        std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
+        std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
+        std::cout << "RUN UPDATE: " << runUpdate << std::endl;
+        // std::cout << "input vector: " << inputVector(0) << std::endl;
+        mHoughTransformLaneDetector->predictLanePosition(inputVector);
+        auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate, detectedTrafficSignLabel);
 
-            std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
-            std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
-            std::cout << "RUN UPDATE: " << runUpdate << std::endl;
-            // std::cout << "input vector: " << inputVector(0) << std::endl;
-            mHoughTransformLaneDetector->predictLanePosition(inputVector);
-            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate, detectedTrafficSignLabel);
+        leftPositionX = predictLeftPositionX;
+        rightPositionX = predictRightPositionX;
 
-            leftPositionX = predictLeftPositionX;
-            rightPositionX = predictRightPositionX;
+        currentTime = ros::Time::now();
+        stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
 
-            currentTime = ros::Time::now();
-            stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
+        mBinaryFilter->addSample(stopDetected);
+        PREC stopProbability = mBinaryFilter->getResult();
+        stopDetected = stopProbability > 0.5;
 
-            mBinaryFilter->addSample(stopDetected);
-            PREC stopProbability = mBinaryFilter->getResult();
-            stopDetected = stopProbability > 0.5;
+        ros::Duration delta_t = currentTime - previousTime;
+        mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * (M_PI / 180.f), static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
 
-            ros::Duration delta_t = currentTime - previousTime;
-            mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * (M_PI / 180.f), static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
+        int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
+        int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
+        mStanley->calculateSteeringAngle(errorFromMid, 0, mXycarSpeed);
 
-            int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
-            int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
-            mStanley->calculateSteeringAngle(errorFromMid, 0, mXycarSpeed);
-
-            PREC stanleyResult = mStanley->getResult();
-            steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
-
-            // std::cout << "error: " << errorFromMid << std::endl;
-        }
+        PREC stanleyResult = mStanley->getResult();
+        steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
 
         std::cout << "position: " << leftPositionX << ", " << rightPositionX << std::endl;
         if (enableStopDetected && stopDetected && !previousStopDetected)
