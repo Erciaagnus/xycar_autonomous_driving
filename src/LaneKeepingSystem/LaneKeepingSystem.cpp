@@ -72,6 +72,7 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mMinBoundingboxArea = config["DETECTION"]["MIN_BOUNDINGBOX_AREA"].as<PREC>();
 }
 
+// RUN MAIN FUNCTION!!!!!!!!!!
 template <typename PREC>
 void LaneKeepingSystem<PREC>::run()
 {
@@ -102,24 +103,25 @@ void LaneKeepingSystem<PREC>::run()
 
     inputVector << 0.f, 0.f;
 
+    // ROS가 종료될때까지 반복해서 실행.
     while (ros::ok())
     {
-        ros::spinOnce();
+        ros::spinOnce(); // ROS 메시지 콜백함수들 호출
 
-        if (mFrame.empty())
+        if (mFrame.empty()) // mFrame이 비어있지 않으면 지속적 실행
             continue;
 
         mHoughTransformLaneDetector->copyDebugFrame(mFrame);
 
-        if (!mDetectTrafficSigns.empty())
-        {
-            const auto [boundingBoxArea, box] = mDetectTrafficSigns.top();
-            const auto [trafficSignLabel, trafficSignTime] = box;
+        // if (!mDetectTrafficSigns.empty())
+        // {
+        //     const auto [boundingBoxArea, box] = mDetectTrafficSigns.top();
+        //     const auto [trafficSignLabel, trafficSignTime] = box;
 
-            detectedTrafficSignLabel = mDetectionLabel[trafficSignLabel];
-        } else {
-            detectedTrafficSignLabel = "IGNORE";
-        }
+        //     detectedTrafficSignLabel = mDetectionLabel[trafficSignLabel];
+        // } else {
+        //     detectedTrafficSignLabel = "IGNORE";
+        // }
 
         int32_t leftPositionX = 0;
         int32_t rightPositionX = 640;
